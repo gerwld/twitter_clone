@@ -1,3 +1,7 @@
+import bcrypt from 'bcryptjs';
+import {v2 as cloudinary} from "cloudinary";
+
+// models
 import Notification from '../models/notification.model.js';
 import User from '../models/user.model.js';
 
@@ -82,10 +86,72 @@ export const followUnfollowUser = async (req, res) => {
 
 };
 export const updateUserProfile = async (req, res) => {
+    const {fullname, username, email, currentPassword, newPassword, bio, link} = req.body;
+    let {profileImg, coverImg} = req.body;
+    
+    const userId = req.user._id;
+
     try {
+        let user = await User.findById(userId);
+        if(!user) return res.status(404).json({error: "User not found"});
+
+        // * Password Update
+
+        if((!currentPassword && newPassword) || (currentPassword && !newPassword)) {
+            return res.status(400).json({error: "Please provide both current and new password"})
+        }
+
+        if(currentPassword && newPassword) {
+            const isMatch = await bcrypt.compare(currentPassword, user.password);
+            if(!isMatch) return res.status(400).json({error: "Current password is incorrect"});
+
+            if(newPassword.length < 6) {
+                return res.status(400).json({error: "New password should be at least 6 characters long"})
+            } 
+
+            const salt = await bcrypt.genSalt(10);
+            user.password = await bcrypt.hash(newPassword, salt);
+            
+        }
+
+
+        // * Cover / Profile Image Update
+
+        if(coverImg) {
+            if(user.coverImg) {
+                await cloudinary.uploader.destroy(user.coverImg.split("/").pop().split(".")[0]);
+            }
+            const uploadedResponse = await cloudinary.uploader.upload(coverImg);
+            if(uploaded) coverImg = uploadedResponse.secure_url;
+        }
+
+        if(profileImg) {
+            if(user.profileImg) {
+                await cloudinary.uploader.destroy(user.profileImg.split("/").pop().split(".")[0]);
+            }
+            const uploadedResponse = await cloudinary.uploader.upload(profileImg);
+            if(uploaded) profileImg = uploadedResponse.secure_url;
+        }
+
+        // * Set everything else and save it in Database
+
+        user.fullname = fullname || user.fullname;
+        user.email = email || user.email;
+        user.username = username || user.username;
+        user.bio = bio || user.bio;
+        user.link = link || user.link;
+        user.coverImg = coverImg || user.coverImg;
+        user.profileImg = profileImg || user.profileImg;
+
+        user = await user.save();
+
+        user.password = null;
+
+        res.status(200).json({message: "Updated profile", data: user})
         
     } catch (err) {
-        
+        console.log("Error in user.controller.js: " + err.message);
+        console.log(err);
+        res.status(500).json({error: "Internal Server Error"});   
     }
-
 };
